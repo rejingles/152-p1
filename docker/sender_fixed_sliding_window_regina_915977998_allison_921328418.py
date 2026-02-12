@@ -58,7 +58,6 @@ def sliding_window(filename):
         while next_seq < win_start + WINDOW_SIZE and next_seq in packets:
             # send current packet to server
             udp_socket.sendto(packets[next_seq], server)
-            print("Sent: ", next_seq) #debug
 
             # record time packet was sent
             if next_seq not in time_sent:
@@ -98,7 +97,6 @@ def sliding_window(filename):
     # gather data for metrics
     total_bytes = final_seq
     total_time = end - start
-    print(total_time)
 
     # calculate return values
     throughput = total_bytes / total_time
