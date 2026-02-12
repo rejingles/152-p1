@@ -56,6 +56,7 @@ def stop_and_wait(filename):
         # no ack received yet
         ack_recv = False
         first_send_time = None
+        delayed = False
 
         while not ack_recv:
             try:
@@ -71,12 +72,14 @@ def stop_and_wait(filename):
                 # if ack received, record delay time, add to total bytes
                 if ack >= seq_num:
                     ack_recv = True
-                    delay = time.time() - first_send_time
-                    delays.append(delay)
                     total_bytes_sent += MESSAGE_SIZE
+                    if delayed:
+                        delay = time.time() - first_send_time
+                        delays.append(delay)
 
             # if timeout, try again
             except socket.timeout:
+                delayed = True
                 continue
         
         # go to next packet
