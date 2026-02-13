@@ -4,8 +4,11 @@ import time
 PACKET_SIZE = 1024
 SEQ_ID_SIZE = 4
 MESSAGE_SIZE = PACKET_SIZE - SEQ_ID_SIZE
-WINDOW_SIZE = 25 * MESSAGE_SIZE
-TIMEOUT = 0.1
+TIMEOUT = 0.2
+INIT_CWND = MESSAGE_SIZE
+SLOW_START = 0
+AIMD = 1
+FAST_RECOVERY = 2
 
 # convert file into packets
 def create_packets(filename):
@@ -31,7 +34,13 @@ def create_packets(filename):
     return packets, seq_id
 
 # send packets to receiver
-def sliding_window(filename):
+def TCP(filename):
+    # setup initial values
+    cwnd = INIT_CWND
+    ssthresh = 64 * MESSAGE_SIZE
+    dupack = 0
+    last_ack = -1
+
     # split file into packets and obtain final message id
     packets, final_seq = create_packets(filename)
 
@@ -41,9 +50,9 @@ def sliding_window(filename):
     udp_socket.settimeout(TIMEOUT)
     server = ("localhost", 5001)
 
-    # set up window pointers
-    win_start = 0   # beginning of sliding window
-    next_seq = 0    # next packet to be sent
+    # next packet to be sent
+    cwnd_start = 0
+    next_seq = 0
 
     # keeping to calculate metrics
     time_sent = {}
@@ -52,10 +61,13 @@ def sliding_window(filename):
     # start timer
     start = time.time()
 
+    # we begin in slow start
+    state = SLOW_START
+
     # send packets
-    while win_start < final_seq:
-        # make sure we are in sliding window and it exists in packet list
-        while next_seq < win_start + WINDOW_SIZE and next_seq in packets:
+    while cwnd_start < final_seq:
+        # make sure we are in congestion window and it exists in packet list
+        while next_seq < cwnd_start + cwnd and next_seq in packets:
             # send current packet to server
             udp_socket.sendto(packets[next_seq], server)
 
@@ -71,22 +83,57 @@ def sliding_window(filename):
             ack_recv, _ = udp_socket.recvfrom(PACKET_SIZE)
             ack = int.from_bytes(ack_recv[:SEQ_ID_SIZE], signed=True, byteorder='big')
 
-            # shift sliding window
-            if ack > win_start:
-                seq = win_start
-                # calculate delay if packets are sent out of order
+            # new ACK received
+            if ack > cwnd_start:
+                seq = cwnd_start
                 while seq < ack:
-                    if seq < ack:
-                        if seq in time_sent:
-                            delays.append(time.time() - time_sent[seq])
-                            del time_sent[seq]
+                    if seq in time_sent:
+                        delays.append(time.time() - time_sent[seq])
+                        del time_sent[seq]
                     seq += MESSAGE_SIZE
-                # shift window after receiving first in order packet
-                win_start = ack
-        # timeout
+
+                # shift congestion control window and start checking for duplicate ACKs
+                cwnd_start = ack
+                dupack = 0
+
+                if state == SLOW_START:
+                    # Slow Start
+                    # increase cwnd 1 MSS per ACK
+                    cwnd += MESSAGE_SIZE
+                    # switch to AIMD if we reach the slow start threshold
+                    if cwnd >= ssthresh:
+                        state = AIMD
+                elif state == AIMD:
+                    # AIMD
+                    # increase cwnd 1 MSS per RTT
+                    cwnd += int(MESSAGE_SIZE * MESSAGE_SIZE / cwnd)
+                elif state == FAST_RECOVERY:
+                    # Fast Recovery
+                    # immediately switch to AIMD
+                    cwnd = ssthresh
+                    state = AIMD
+
+                # record ack to track dupACKs
+                last_ack = ack
+
+            # dupACK
+            elif ack == last_ack:
+                dupack += 1
+                # fast retransmit
+                if dupack == 3:
+                    state = FAST_RECOVERY
+                    ssthresh = max(2 * MESSAGE_SIZE, cwnd // 2)
+                    cwnd = ssthresh + (3 * MESSAGE_SIZE)
+                    udp_socket.sendto(packets[ack], server)
+                elif dupack > 3 and state == FAST_RECOVERY:
+                    cwnd += MESSAGE_SIZE
+            
         except socket.timeout:
-            # resend lost packets
-            next_seq = win_start
+                ssthresh = max(2 * MESSAGE_SIZE, cwnd // 2)
+                cwnd = INIT_CWND
+                dupack = 0
+                next_seq = cwnd_start
+                state = SLOW_START
 
     # close the connection
     fin = (0).to_bytes(SEQ_ID_SIZE, signed=True, byteorder='big') + b'==FINACK=='    
@@ -108,7 +155,7 @@ def sliding_window(filename):
 
 def main():
 
-    throughput, delay, performance = sliding_window("file.mp3")
+    throughput, delay, performance = TCP("file.mp3")
 
     t = round(throughput, 7)
     d = round(delay, 7)

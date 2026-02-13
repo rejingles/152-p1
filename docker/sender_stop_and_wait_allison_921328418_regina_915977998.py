@@ -61,7 +61,8 @@ def stop_and_wait(filename):
             try:
                 # send current packet, record time
                 udp_socket.sendto(packets[seq_num], server)
-                first_send_time = time.time()
+                if first_send_time is None:
+                    first_send_time = time.time()
 
                 # check for ack
                 ack_bytes, _ = udp_socket.recvfrom(PACKET_SIZE)
