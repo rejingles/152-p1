@@ -56,14 +56,12 @@ def stop_and_wait(filename):
         # no ack received yet
         ack_recv = False
         first_send_time = None
-        delayed = False
 
         while not ack_recv:
             try:
                 # send current packet, record time
                 udp_socket.sendto(packets[seq_num], server)
                 first_send_time = time.time()
-                print("Sent:", seq_num)
 
                 # check for ack
                 ack_bytes, _ = udp_socket.recvfrom(PACKET_SIZE)
@@ -73,13 +71,11 @@ def stop_and_wait(filename):
                 if ack >= seq_num:
                     ack_recv = True
                     total_bytes_sent += MESSAGE_SIZE
-                    if delayed:
-                        delay = time.time() - first_send_time
-                        delays.append(delay)
+                    delay = time.time() - first_send_time
+                    delays.append(delay)
 
             # if timeout, try again
             except socket.timeout:
-                delayed = True
                 continue
         
         # go to next packet
@@ -95,7 +91,6 @@ def stop_and_wait(filename):
     # gather data for metrics
     total_bytes = final_seq
     total_time = end - start
-    print(total_time)
 
     # calculate return values
     throughput = total_bytes / total_time
